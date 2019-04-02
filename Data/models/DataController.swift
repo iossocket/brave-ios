@@ -30,6 +30,23 @@ public class DataController: NSObject {
         return FileManager.default.fileExists(atPath: storeURL.path)
     }
     
+    public func migrateToNewPathIfNeeded() {
+        if FileManager.default.fileExists(atPath: oldStoreURL.path) {
+            do {
+                try self.container.persistentStoreCoordinator.addPersistentStore(ofType: NSSQLiteStoreType, configurationName: nil, at: oldStoreURL, options: nil)
+                if let oldStore = self.container.persistentStoreCoordinator.persistentStore(for: oldStoreURL) {
+                    try self.container.persistentStoreCoordinator.migratePersistentStore(oldStore, to: storeURL, options: nil, withType: NSSQLiteStoreType)
+                    try self.container.persistentStoreCoordinator.destroyPersistentStore(at: oldStoreURL, ofType: NSSQLiteStoreType, options: nil)
+                    try FileManager.default.removeItem(at: oldStoreURL)
+                }
+            } catch {
+                log.error(error)
+            }
+        } else {
+            addPersistentStore(for: container)
+        }
+    }
+    
     // MARK: - Data framework interface
     
     static func perform(context: WriteContext = .new(false), save: Bool = true,
@@ -102,6 +119,12 @@ public class DataController: NSObject {
         storeDescription.setOption(completeProtection, forKey: NSPersistentStoreFileProtectionKey)
         
         container.persistentStoreDescriptions = [storeDescription]
+        // Dev note: This completion handler might be misleading: the persistent store is loaded synchronously by default.
+        container.loadPersistentStores(completionHandler: { _, error in
+            if let error = error {
+                fatalError("Load persistent store error: \(error)")
+            }
+        })
     }
     
     // MARK: - Private
@@ -117,15 +140,6 @@ public class DataController: NSObject {
         }
         
         let container = NSPersistentContainer(name: modelName, managedObjectModel: mom)
-        
-        addPersistentStore(for: container)
-        
-        // Dev note: This completion handler might be misleading: the persistent store is loaded synchronously by default.
-        container.loadPersistentStores(completionHandler: { _, error in
-            if let error = error {
-                fatalError("Load persistent store error: \(error)")
-            }
-        })
         // We need this so the `viewContext` gets updated on changes from background tasks.
         container.viewContext.automaticallyMergesChangesFromParent = true
         return container
@@ -137,10 +151,20 @@ public class DataController: NSObject {
         return queue
     }()
     
-    private let storeURL: URL = {
+    private let oldStoreURL: URL = {
         let urls = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
         guard let docURL = urls.last else {
             log.error("Could not load url at document directory")
+            fatalError()
+        }
+        
+        return docURL.appendingPathComponent(DataController.databaseName)
+    }()
+    
+    private let storeURL: URL = {
+        let urls = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)
+        guard let docURL = urls.last else {
+            log.error("Could not load url at application support directory")
             fatalError()
         }
         

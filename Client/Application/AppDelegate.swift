@@ -64,7 +64,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate, UIViewControllerRestorati
         AdblockResourceDownloader.shared.regionalAdblockResourcesSetup()
         
         HttpsEverywhereStats.shared.startLoading()
-        
+        DataController.shared.migrateToNewPathIfNeeded()
         // Passcode checking, must happen on immediate launch
         if !DataController.shared.storeExists() {
             // Since passcode is stored in keychain it persists between installations.
